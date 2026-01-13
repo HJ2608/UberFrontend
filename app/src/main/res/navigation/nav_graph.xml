@@ -2,7 +2,7 @@
 <navigation xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/nav_graph"
-    app:startDestination="@id/loginFragment">
+    app:startDestination="@id/chooseRoleFragment">
 
     <!--SIGNUP-->
     <fragment
@@ -15,6 +15,16 @@
             app:destination="@id/loginFragment" />
     </fragment>
 
+    <fragment
+        android:id="@+id/chooseRoleFragment"
+        android:name="com.example.uberfrontend.ui.auth.ChooseRoleFragment"
+        android:label="Choose Role">
+
+        <action
+            android:id="@+id/action_chooseRoleFragment_to_loginFragment"
+            app:destination="@id/loginFragment"/>
+    </fragment>
+
     <!--LOGIN-->
     <fragment
         android:id="@+id/loginFragment"
@@ -24,6 +34,10 @@
         <action
             android:id="@+id/action_loginFragment_to_homeFragment"
             app:destination="@id/homeFragment" />
+
+        <action
+            android:id="@+id/action_loginFragment_to_driverHomeFragment"
+            app:destination="@id/driverHomeFragment" />
 
         <!-- Login -> Signup -->
         <action
@@ -35,6 +49,20 @@
         android:id="@+id/homeFragment"
         android:name="com.example.uberfrontend.ui.home.HomeFragment"
         android:label="Home" />
+
+    <fragment
+        android:id="@+id/driverHomeFragment"
+        android:name="com.example.uberfrontend.ui.home.DriverHomeFragment"
+        android:label="Driver Home">
+    <action
+        android:id="@+id/action_driverHomeFragment_to_driverCurrentRideFragment"
+        app:destination="@id/driverCurrentRideFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/driverCurrentRideFragment"
+        android:name="com.example.uberfrontend.ui.home.DriverCurrentRideFragment"
+        android:label="Current Ride" />
 
     <fragment
         android:id="@+id/profileFragment"

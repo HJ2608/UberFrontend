@@ -27,5 +27,6 @@ data class LoginResponseDto(
     val firstName: String,
     val lastName: String,
     val mobileNum: String,
-    val email: String
+    val email: String,
+    val role: String
 )

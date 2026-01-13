@@ -4,6 +4,7 @@ import com.example.uberfrontend.network.dto.*
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -51,3 +52,28 @@ interface RideApi {
         @Path("rideId") rideId: Int
     ): Response<Unit>
 }
+
+interface DriverApi {
+
+    @POST("/drivers/{id}/online")
+    suspend fun setOnlineStatus(
+        @Path("id") driverId: Int,
+        @Query("online") online: Boolean
+    )
+
+    @POST("/drivers/{driverId}/status")
+    suspend fun updateOnlineStatus(
+        @Path("driverId") driverId: Int,
+        @Body status: Map<String, Boolean>,
+        @Header("Authorization") token: String
+    )
+
+    @POST("driver/ride/verify-otp")
+    suspend fun verifyOtp(
+        @Body body: Map<String, Any>,
+        @Header("Authorization") token: String
+    ): Response<Unit>
+
+
+}
+

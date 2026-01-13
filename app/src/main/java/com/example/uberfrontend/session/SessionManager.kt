@@ -11,6 +11,8 @@ object SessionManager {
     private const val KEY_LAST_NAME = "last_name"
     private const val KEY_MOBILE = "mobile"
     private const val KEY_EMAIL = "email"
+    private const val PREFS = "uber_prefs"
+    private const val KEY_ROLE = "role"
 
     var token: String? = null
         private set
@@ -66,6 +68,17 @@ object SessionManager {
             .putString(KEY_EMAIL, email)
             .apply()
     }
+
+    fun saveRole(context: Context, role: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_ROLE, role)
+            .apply()
+    }
+
+    fun getRole(context: Context): String? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_ROLE, null)
 
     fun clear(context: Context) {
         token = null

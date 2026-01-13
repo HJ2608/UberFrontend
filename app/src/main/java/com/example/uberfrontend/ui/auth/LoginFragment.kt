@@ -64,9 +64,21 @@ class LoginFragment : Fragment() {
 
                     Toast.makeText(requireContext(), "Welcome ${res.firstName}", Toast.LENGTH_SHORT).show()
 
-                    findNavController().navigate(
-                        com.example.uberfrontend.R.id.action_loginFragment_to_homeFragment
-                    )
+                    when (res.role) {
+                        "DRIVER" -> {
+                            findNavController().navigate(
+                                com.example.uberfrontend.R.id.action_loginFragment_to_driverHomeFragment
+                            )
+                        }
+                        "USER" -> {
+                            findNavController().navigate(
+                                com.example.uberfrontend.R.id.action_loginFragment_to_homeFragment
+                            )
+                        }
+                        else -> {
+                            Toast.makeText(requireContext(), "Invalid role", Toast.LENGTH_SHORT).show()
+                        }
+                    }
 
                 } catch (e: HttpException) {
                     val msg = if (e.code() == 401) "Invalid credentials"

@@ -34,15 +34,21 @@ import com.google.android.libraries.places.widget.model.AutocompleteActivityMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.graphics.Color
+import android.util.Log
 import com.example.uberfrontend.network.ApiClient
 import com.example.uberfrontend.network.RideApi
 import com.example.uberfrontend.network.dto.CreateRideRequestDto
 import com.example.uberfrontend.network.dto.RideCardResponse
 import com.example.uberfrontend.session.SessionManager
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
+import com.google.android.gms.maps.model.Marker
+import com.google.gson.Gson
+import io.reactivex.disposables.Disposable
 import retrofit2.HttpException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-
+import ua.naiksoftware.stomp.Stomp
+import ua.naiksoftware.stomp.StompClient
 
 
 class HomeFragment : Fragment(), OnMapReadyCallback {
@@ -69,12 +75,16 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
         android.Manifest.permission.ACCESS_COARSE_LOCATION
     )
 
+
     private var pickupLatLng: LatLng? = null
     private var dropLatLng: LatLng? = null
     private var mapsApiKey: String? = null
     
 
     private var pollingJob: kotlinx.coroutines.Job? = null
+
+    lateinit var stompClient: StompClient
+    private var rideSubscription: Disposable? = null
 
     private val autocompleteLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -203,6 +213,12 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
             binding.cardRidePanel.visibility = View.VISIBLE
             Toast.makeText(requireContext(), "Ride cancelled", Toast.LENGTH_SHORT).show()
         }
+
+        stompClient = Stomp.over(
+            Stomp.ConnectionProvider.OKHTTP,
+            "ws://YOUR_SERVER_URL/ws"
+        )
+        stompClient.connect()
     }
 
     private var currentRideId: Int? = null
@@ -248,7 +264,8 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
                         Toast.makeText(requireContext(), "Ride requested! Finding driver...", Toast.LENGTH_SHORT).show()
                         binding.btnConfirmRide.text = "Finding Driver..."
 
-                        startPollingForDriver(rideId)
+                        subscribeToRideUpdates(rideId)
+
                         Toast.makeText(requireContext(), "RideId=$rideId", Toast.LENGTH_LONG).show()
                     }
                 } else {
@@ -350,6 +367,12 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
 
     override fun onDestroyView() {
         super.onDestroyView()
+
+        rideSubscription?.dispose()
+        if (::stompClient.isInitialized) {
+            stompClient.disconnect()
+        }
+
         stopPolling()
         _binding = null
     }
@@ -686,5 +709,49 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
         tvOtpCode?.text = response.otpCode ?: "--"
         tvEstimatedFare?.text = "Est. Fare: ₹${response.estimatedFare}"
     }
+
+    private fun subscribeToRideUpdates(rideId: Int) {
+        if (!::stompClient.isInitialized) return
+
+        rideSubscription = stompClient
+            .topic("/topic/ride/$rideId")
+            .subscribe({ message ->
+                val card = Gson().fromJson(message.payload, RideCardResponse::class.java)
+
+                if (card.driver != null && card.status == "ASSIGNED") {
+                    lifecycleScope.launch(Dispatchers.Main) {
+                        showRideCard(card)
+                    }
+                }
+            }, { error ->
+                Log.e("WS", error.message ?: "Socket error")
+            })
+    }
+
+    private var driverMarker: Marker? = null
+
+    private fun updateDriverMarker(position: LatLng) {
+        if (!::googleMap.isInitialized) return
+
+        if (driverMarker == null) {
+            driverMarker = googleMap.addMarker(
+                MarkerOptions()
+                    .position(position)
+                    .title("Driver")
+                    .icon(
+                        BitmapDescriptorFactory.defaultMarker(
+                            BitmapDescriptorFactory.HUE_BLUE
+                        )
+                    )
+            )
+            googleMap.animateCamera(
+                CameraUpdateFactory.newLatLngZoom(position, 15f)
+            )
+        } else {
+            driverMarker!!.position = position
+        }
+    }
+
+
 
 }
