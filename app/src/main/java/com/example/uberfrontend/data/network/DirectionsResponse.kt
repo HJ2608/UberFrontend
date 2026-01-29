@@ -1,4 +1,4 @@
-package com.example.uberfrontend.network
+package com.example.uberfrontend.data.network
 
 data class DirectionsResponse(
     val routes: List<Route>?

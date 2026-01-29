@@ -6,9 +6,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
 import com.example.uberfrontend.databinding.ActivityMainBinding
-import androidx.core.view.isVisible
 import android.view.View
-import com.example.uberfrontend.session.SessionManager
+import com.example.uberfrontend.data.session.SessionManager
 
 
 class MainActivity : AppCompatActivity() {

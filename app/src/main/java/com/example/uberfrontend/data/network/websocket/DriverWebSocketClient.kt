@@ -1,7 +1,10 @@
-package com.example.uberfrontend.network.socket
+package com.example.uberfrontend.data.network.websocket
 
-import okhttp3.*
-import okio.ByteString
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 
 class DriverWebSocketClient(
     private val token: String,
@@ -19,7 +22,7 @@ class DriverWebSocketClient(
 
     fun connect() {
         val request = Request.Builder()
-            .url("ws://10.0.2.2:9090/ws") // emulator → localhost
+            .url("ws://192.168.1.5:9090/ws") // emulator → localhost
             .addHeader("Authorization", "Bearer $token")
             .build()
 

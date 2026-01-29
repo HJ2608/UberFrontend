@@ -1,6 +1,4 @@
-package com.example.uberfrontend.network.dto
-
-import java.math.BigDecimal
+package com.example.uberfrontend.data.model
 
 data class CreateRideRequestDto(
     val pickupLat: Double,
@@ -43,6 +41,7 @@ enum class CabType {
     SEDAN,
     SUV
 }
+
 data class CabSummary(
     val cabId: Int,
     val model: String?,

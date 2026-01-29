@@ -11,9 +11,9 @@ import androidx.navigation.fragment.findNavController
 import com.example.uberfrontend.R
 import com.example.uberfrontend.databinding.FragmentSignupBinding
 import androidx.lifecycle.lifecycleScope
-import com.example.uberfrontend.network.ApiClient
-import com.example.uberfrontend.network.AuthApi
-import com.example.uberfrontend.network.dto.SignupRequestDto
+import com.example.uberfrontend.data.network.ApiClient
+import com.example.uberfrontend.data.network.AuthApi
+import com.example.uberfrontend.data.model.SignupRequestDto
 import kotlinx.coroutines.launch
 class SignupFragment : Fragment() {
 

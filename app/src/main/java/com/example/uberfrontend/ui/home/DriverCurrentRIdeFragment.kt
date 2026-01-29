@@ -12,10 +12,10 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.uberfrontend.R
 import com.example.uberfrontend.databinding.FragmentDriverCurrentRideBinding
-import com.example.uberfrontend.network.ApiClient
-import com.example.uberfrontend.network.DriverApi
-import com.example.uberfrontend.network.GoogleDirectionsClient
-import com.example.uberfrontend.session.SessionManager
+import com.example.uberfrontend.data.network.ApiClient
+import com.example.uberfrontend.data.network.DriverApi
+import com.example.uberfrontend.data.network.GoogleDirectionsClient
+import com.example.uberfrontend.data.session.SessionManager
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -30,6 +30,9 @@ import com.google.maps.android.PolyUtil
 import ua.naiksoftware.stomp.Stomp
 import ua.naiksoftware.stomp.StompClient
 import android.util.Log
+import com.example.uberfrontend.data.realtime.StompManager
+import io.reactivex.disposables.CompositeDisposable
+import org.json.JSONObject
 
 
 class DriverCurrentRideFragment :
@@ -39,7 +42,17 @@ class DriverCurrentRideFragment :
     private lateinit var binding: FragmentDriverCurrentRideBinding
     private lateinit var googleMap: GoogleMap
 
-    private val rideId = 1 // TODO: pass via arguments
+    private val rideId: Int by lazy {
+        requireArguments().getInt("rideId")
+    }
+    private val pickupLat: Double by lazy {
+        requireArguments().getDouble("pickupLat")
+    }
+    private val pickupLng: Double by lazy {
+        requireArguments().getDouble("pickupLng")
+    }
+
+    private val stompDisposables = CompositeDisposable()
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -50,18 +63,35 @@ class DriverCurrentRideFragment :
         mapFragment.getMapAsync(this)
 
         setupRideActionButton()
-        stompClient = Stomp.over(
-            Stomp.ConnectionProvider.OKHTTP,
-            "ws://YOUR_SERVER_URL/ws"
+        val client = StompManager.clientOrNull()
+        if (client == null) {
+            Toast.makeText(requireContext(), "Socket not connected", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        stompDisposables.add(
+            client.topic("/user/queue/ride-cancelled")
+                .subscribe({ msg ->
+                    val json = JSONObject(msg.payload)
+                    val cancelledRideId = json.optInt("rideId", -1)
+                    if (cancelledRideId != rideId) return@subscribe
+
+                    requireActivity().runOnUiThread {
+                        Toast.makeText(requireContext(), "Ride cancelled by user", Toast.LENGTH_LONG).show()
+
+                    }
+                }, { err ->
+                    Log.e("STOMP_FLOW", "cancel sub error", err)
+                })
         )
-        stompClient.connect()
+
     }
 
     override fun onMapReady(map: GoogleMap) {
         googleMap = map
         googleMap.uiSettings.isMyLocationButtonEnabled = true
 
-        val pickupLatLng = LatLng(28.6139, 77.2090)
+        val pickupLatLng = LatLng(pickupLat, pickupLng)
         googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(pickupLatLng, 15f))
 
         loadRouteToPickup()
@@ -219,26 +249,26 @@ class DriverCurrentRideFragment :
 
 
     private fun sendLocationViaSocket(lat: Double, lng: Double) {
-        val payload = mapOf(
-            "rideId" to rideId,
-            "lat" to lat,
-            "lng" to lng
-        )
+        val client = StompManager.clientOrNull() ?: return
 
-        stompClient.send(
-            "/app/ride/location",
-            Gson().toJson(payload)
-        ).subscribe(
-            { /* sent */ },
-            { error -> Log.e("STOMP", error.message ?: "") }
+        val payload = JSONObject().apply {
+            put("rideId", rideId)
+            put("lat", lat)
+            put("lng", lng)
+        }
+
+        stompDisposables.add(
+            client.send("/app/ride/location", payload.toString())
+                .subscribe(
+                    { /* ok */ },
+                    { err -> Log.e("STOMP_FLOW", "location send error", err) }
+                )
         )
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
-        if (::stompClient.isInitialized) {
-            stompClient.disconnect()
-        }
+        stompDisposables.clear()
 
         if (::locationCallback.isInitialized) {
             fusedLocationClient.removeLocationUpdates(locationCallback)

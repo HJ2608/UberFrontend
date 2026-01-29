@@ -1,4 +1,4 @@
-package com.example.uberfrontend.network.dto
+package com.example.uberfrontend.data.model
 
 data class PaymentRequestDto(
     val method: String

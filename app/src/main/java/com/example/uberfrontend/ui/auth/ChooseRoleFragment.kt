@@ -8,7 +8,7 @@ import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import com.example.uberfrontend.R
 import com.example.uberfrontend.databinding.FragmentChooseRoleBinding
-import com.example.uberfrontend.session.SessionManager
+import com.example.uberfrontend.data.session.SessionManager
 
 class ChooseRoleFragment : Fragment() {
 

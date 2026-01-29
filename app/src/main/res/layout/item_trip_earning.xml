@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="10dp"
+    android:elevation="4dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <TextView
+            android:id="@+id/tvTripTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Trip #123"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvTripTime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Jan 21, 10:30 AM" />
+
+        <TextView
+            android:id="@+id/tvTripAmount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="$12.50"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:layout_marginTop="6dp" />
+    </LinearLayout>
+
+</androidx.cardview.widget.CardView>

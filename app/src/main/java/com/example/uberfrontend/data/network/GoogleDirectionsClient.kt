@@ -1,5 +1,6 @@
-package com.example.uberfrontend.network
+package com.example.uberfrontend.data.network
 
+import com.example.uberfrontend.data.network.DirectionsApi
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 

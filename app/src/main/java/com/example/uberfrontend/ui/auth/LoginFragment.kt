@@ -9,13 +9,13 @@ import androidx.navigation.fragment.findNavController
 import com.example.uberfrontend.databinding.FragmentLoginBinding
 import androidx.lifecycle.lifecycleScope
 import android.widget.Toast
-import com.example.uberfrontend.network.ApiClient
-import com.example.uberfrontend.network.AuthApi
-import com.example.uberfrontend.network.dto.LoginRequestDto
-import com.example.uberfrontend.session.SessionManager
+import com.example.uberfrontend.data.network.ApiClient
+import com.example.uberfrontend.data.network.AuthApi
+import com.example.uberfrontend.data.model.LoginRequestDto
+import com.example.uberfrontend.data.session.SessionManager
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
-
+import com.example.uberfrontend.R
 class LoginFragment : Fragment() {
 
     private var _binding: FragmentLoginBinding? = null
@@ -59,7 +59,8 @@ class LoginFragment : Fragment() {
                         firstName = res.firstName,
                         lastName = res.lastName,
                         mobile = res.mobileNum,
-                        email = res.email
+                        email = res.email,
+                        role = res.role
                     )
 
                     Toast.makeText(requireContext(), "Welcome ${res.firstName}", Toast.LENGTH_SHORT).show()
@@ -67,12 +68,12 @@ class LoginFragment : Fragment() {
                     when (res.role) {
                         "DRIVER" -> {
                             findNavController().navigate(
-                                com.example.uberfrontend.R.id.action_loginFragment_to_driverHomeFragment
+                                R.id.action_loginFragment_to_driverHomeFragment
                             )
                         }
                         "USER" -> {
                             findNavController().navigate(
-                                com.example.uberfrontend.R.id.action_loginFragment_to_homeFragment
+                                R.id.action_loginFragment_to_homeFragment
                             )
                         }
                         else -> {
@@ -92,7 +93,7 @@ class LoginFragment : Fragment() {
 
         binding.tvGoToSignup.setOnClickListener {
             findNavController().navigate(
-                com.example.uberfrontend.R.id.action_loginFragment_to_signupFragment
+                R.id.action_loginFragment_to_signupFragment
             )
         }
     }

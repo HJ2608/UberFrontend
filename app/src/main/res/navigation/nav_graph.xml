@@ -54,9 +54,9 @@
         android:id="@+id/driverHomeFragment"
         android:name="com.example.uberfrontend.ui.home.DriverHomeFragment"
         android:label="Driver Home">
-    <action
-        android:id="@+id/action_driverHomeFragment_to_driverCurrentRideFragment"
-        app:destination="@id/driverCurrentRideFragment" />
+        <action
+            android:id="@+id/action_driverHomeFragment_to_driverCurrentRideFragment"
+            app:destination="@id/driverCurrentRideFragment" />
     </fragment>
 
     <fragment
