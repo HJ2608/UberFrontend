@@ -30,6 +30,8 @@ import com.google.maps.android.PolyUtil
 import ua.naiksoftware.stomp.Stomp
 import ua.naiksoftware.stomp.StompClient
 import android.util.Log
+import com.example.uberfrontend.data.model.StartRideRequest
+import com.example.uberfrontend.data.network.RideApi
 import com.example.uberfrontend.data.realtime.StompManager
 import io.reactivex.disposables.CompositeDisposable
 import org.json.JSONObject
@@ -39,6 +41,7 @@ class DriverCurrentRideFragment :
     Fragment(R.layout.fragment_driver_current_ride),
     OnMapReadyCallback {
 
+    private val TAG = "DriverCurrentRIdeFragment"
     private lateinit var binding: FragmentDriverCurrentRideBinding
     private lateinit var googleMap: GoogleMap
 
@@ -52,6 +55,18 @@ class DriverCurrentRideFragment :
         requireArguments().getDouble("pickupLng")
     }
 
+    private val dropLng: Double by lazy {
+        requireArguments().getDouble("dropLng")
+    }
+
+    private val dropLat: Double by lazy {
+        requireArguments().getDouble("dropLat")
+    }
+
+    private enum class Phase { TO_PICKUP, TO_DROP }
+    private var phase: Phase = Phase.TO_PICKUP
+
+
     private val stompDisposables = CompositeDisposable()
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -63,6 +78,7 @@ class DriverCurrentRideFragment :
         mapFragment.getMapAsync(this)
 
         setupRideActionButton()
+        loadRideDetailsIntoCard()
         val client = StompManager.clientOrNull()
         if (client == null) {
             Toast.makeText(requireContext(), "Socket not connected", Toast.LENGTH_SHORT).show()
@@ -74,6 +90,7 @@ class DriverCurrentRideFragment :
                 .subscribe({ msg ->
                     val json = JSONObject(msg.payload)
                     val cancelledRideId = json.optInt("rideId", -1)
+                    Log.i(TAG, "rideId=$rideId")
                     if (cancelledRideId != rideId) return@subscribe
 
                     requireActivity().runOnUiThread {
@@ -87,14 +104,107 @@ class DriverCurrentRideFragment :
 
     }
 
+    private val locationPermLauncher =
+        registerForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+        ) { result ->
+            val granted = result[android.Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                    result[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
+
+            val dest = if (phase == Phase.TO_PICKUP) LatLng(pickupLat, pickupLng) else LatLng(dropLat, dropLng)
+
+            if (granted) {
+                try {
+                    googleMap.isMyLocationEnabled = true
+                } catch (_: SecurityException) {}
+                loadRouteToPickup(dest)
+            } else {
+                Log.e(TAG, "Location permission denied -> using fallback origin")
+                drawRouteWithOrigin(LatLng(28.6139, 77.2090), dest, getMapsApiKey())
+            }
+        }
+
+
+    private fun ensureLocationPermissionThenDraw() {
+        val fine = androidx.core.content.ContextCompat.checkSelfPermission(
+            requireContext(),
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        val coarse = androidx.core.content.ContextCompat.checkSelfPermission(
+            requireContext(),
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        val granted = fine || coarse
+        val dest = if (phase == Phase.TO_PICKUP) LatLng(pickupLat, pickupLng) else LatLng(dropLat, dropLng)
+
+        if (granted) {
+            try {
+                googleMap.isMyLocationEnabled = true
+            } catch (_: SecurityException) {}
+            loadRouteToPickup(dest)
+        } else {
+            locationPermLauncher.launch(
+                arrayOf(
+                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+    }
+
+
+    private fun loadRideDetailsIntoCard() {
+        lifecycleScope.launch {
+            try {
+                val token = SessionManager.token
+                if (token.isNullOrBlank()) {
+                    Toast.makeText(requireContext(), "Session expired", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                val api = ApiClient.create(DriverApi::class.java)
+                val ride = api.getRideDetails(rideId, "Bearer $token")
+
+                // Update UI
+                binding.tvRiderName.text =
+                    "Rider: " + (ride.riderName ?: ride.riderMobile ?: "Unknown")
+
+                // If you don’t have pickup/drop address strings from backend,
+                // just show lat/lng for demo (or reverse geocode later)
+                binding.tvPickupLocation.text =
+                    "Pickup: ${ride.pickupLat}, ${ride.pickupLng}"
+
+                binding.tvDropLocation.text =
+                    "Drop: ${ride.dropLat}, ${ride.dropLng}"
+
+                // Keep OTP hidden by default; show only when ARRIVED pressed if you want
+                binding.tvOtp.text = "OTP: ----"
+                binding.tvOtp.visibility = View.GONE
+
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load ride details", e)
+                Toast.makeText(requireContext(), "Failed to load ride details", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+
     override fun onMapReady(map: GoogleMap) {
         googleMap = map
         googleMap.uiSettings.isMyLocationButtonEnabled = true
 
+        Log.i(TAG,"pickupLat:"+pickupLat+"pickupLng:"+pickupLng)
+        Log.i(TAG,"dropLat:"+dropLat+"dropLng:"+dropLng)
+        phase = Phase.TO_PICKUP
+
         val pickupLatLng = LatLng(pickupLat, pickupLng)
         googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(pickupLatLng, 15f))
 
-        loadRouteToPickup()
+        ensureLocationPermissionThenDraw()
+
     }
 
     private fun setupRideActionButton() {
@@ -108,10 +218,32 @@ class DriverCurrentRideFragment :
                 }
                 "END RIDE" -> {
                     // TODO: end ride API
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        try {
+                            val api = ApiClient.create(RideApi::class.java)
+                            val resp = api.endRide(rideId)
+
+                            if (resp.isSuccessful) {
+                                Toast.makeText(requireContext(), "Ride ended", Toast.LENGTH_SHORT).show()
+                                // navigate away / update UI
+                            } else {
+                                Toast.makeText(
+                                    requireContext(),
+                                    resp.errorBody()?.string() ?: "Failed to end ride",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "endRide failed", e)
+                            Toast.makeText(requireContext(), "Network error", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
             }
         }
     }
+
+
 
     private fun showOtpDialog() {
         val input = android.widget.EditText(requireContext())
@@ -130,56 +262,125 @@ class DriverCurrentRideFragment :
     private fun verifyOtp(otp: String) {
         lifecycleScope.launch {
             try {
-                val api = ApiClient.create(DriverApi::class.java)
-
-                val body = mapOf(
-                    "rideId" to rideId,
-                    "otp" to otp
-                )
-
                 val token = SessionManager.token
-                if (token.isNullOrBlank()) {
+                val userId = SessionManager.userId
+
+                if (token.isNullOrBlank() || userId == null) {
                     Toast.makeText(requireContext(), "Session expired", Toast.LENGTH_SHORT).show()
                     return@launch
                 }
 
-                api.verifyOtp(body, token)
+                val api = ApiClient.create(DriverApi::class.java)
 
-                binding.btnRideAction.text = "START RIDE"
+                val resp = api.startRide(
+                    StartRideRequest(rideId = rideId, otp = otp),
+                    "Bearer $token"
+                )
+
+                Log.i(TAG,"response from backend is: "+resp)
+
+                if (!resp.isSuccessful) {
+                    Toast.makeText(requireContext(), resp.errorBody()?.string() ?: "Invalid OTP", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                // ✅ success
+                binding.btnRideAction.text = "END RIDE"   // ✅ better UX
+                phase = Phase.TO_DROP
+                loadRouteToPickup(LatLng(dropLat, dropLng))
                 startLiveLocation()
 
             } catch (e: Exception) {
-                Toast.makeText(
-                    requireContext(),
-                    "Invalid OTP",
-                    Toast.LENGTH_SHORT
-                ).show()
+                Log.e(TAG, "startRide failed", e)
+                Toast.makeText(requireContext(), "Invalid OTP", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
 
 
-    private fun loadRouteToPickup() {
+    private fun loadRouteToPickup(dest: LatLng) {
+        Log.i(TAG,"loadRouteToPickup got called!")
         val key = getMapsApiKey()
         if (key.isBlank()) {
             Toast.makeText(requireContext(), "Maps API key missing", Toast.LENGTH_SHORT).show()
             return
         }
 
+        val fused = LocationServices.getFusedLocationProviderClient(requireContext())
+        Log.i(TAG,"fused is set and fused.lastLocation is yet to be called")
+
+        val fine = androidx.core.content.ContextCompat.checkSelfPermission(
+            requireContext(),
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        val coarse = androidx.core.content.ContextCompat.checkSelfPermission(
+            requireContext(),
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        if (!fine && !coarse) {
+            Log.e(TAG, "No location permission -> using fallback origin")
+            drawRouteWithOrigin(LatLng(28.6139, 77.2090), dest, key)
+            return
+        }
+        if (fine || coarse) {
+            googleMap.isMyLocationEnabled = true
+        }
+
+        fused.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+            .addOnSuccessListener { loc ->
+            Log.i(TAG,"fused.lastLocation.addOnSuccessListener got called")
+            val originLatLng = if (loc != null) {
+                LatLng(loc.latitude, loc.longitude)
+            } else {
+                LatLng(28.6139, 77.2090)
+            }
+            Log.i(TAG,"originLatLng is set")
+            googleMap.clear()
+
+            Log.i(TAG,"originLatLng: "+originLatLng)
+
+            val origin = "${originLatLng.latitude},${originLatLng.longitude}"
+            val destination = "${dest.latitude},${dest.longitude}"
+            Log.i(TAG,"origin: "+origin)
+            Log.i(TAG,"destination: "+destination)
+            lifecycleScope.launch {
+                val response = GoogleDirectionsClient.api.getRoute(
+                    origin = origin,
+                    destination = destination,
+                    apiKey = key
+                )
+
+                if (response.isSuccessful) {
+                    response.body()?.routes
+                        ?.firstOrNull()
+                        ?.overview_polyline
+                        ?.points
+                        ?.let { drawPolyline(it) }
+                }
+            }
+        }
+    }
+
+    private fun drawRouteWithOrigin(originLatLng: LatLng, dest: LatLng, key: String) {
+        val origin = "${originLatLng.latitude},${originLatLng.longitude}"
+        val destination = "${dest.latitude},${dest.longitude}"
+
         lifecycleScope.launch {
             val response = GoogleDirectionsClient.api.getRoute(
-                origin = "28.6139,77.2090",
-                destination = "28.5355,77.3910",
+                origin = origin,
+                destination = destination,
                 apiKey = key
             )
 
             if (response.isSuccessful) {
-                response.body()?.routes
-                    ?.firstOrNull()
-                    ?.overview_polyline
-                    ?.points
+                response.body()?.routes?.firstOrNull()
+                    ?.overview_polyline?.points
                     ?.let { drawPolyline(it) }
+            } else {
+                Log.e(TAG, "Directions failed: ${response.code()} ${response.message()}")
             }
         }
     }
@@ -187,7 +388,7 @@ class DriverCurrentRideFragment :
 
 
     private fun openGoogleMaps() {
-        val uri = Uri.parse("google.navigation:q=28.5355,77.3910")
+        val uri = Uri.parse("google.navigation:q=${pickupLat},${pickupLng}")
         startActivity(Intent(Intent.ACTION_VIEW, uri).apply {
             setPackage("com.google.android.apps.maps")
         })
@@ -202,6 +403,13 @@ class DriverCurrentRideFragment :
                 .width(10f)
                 .color(0xFF1976D2.toInt())
         )
+
+        val builder = LatLngBounds.Builder()
+        decodedPath.forEach { builder.include(it) }
+        val bounds = builder.build()
+
+        googleMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 120))
+
     }
 
     private fun getMapsApiKey(): String {

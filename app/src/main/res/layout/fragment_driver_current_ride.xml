@@ -38,7 +38,7 @@
                 android:id="@+id/tvRiderName"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Rider: Rahul"
+                android:text="Rider: "
                 android:textSize="18sp"
                 android:textStyle="bold" />
 
@@ -46,7 +46,7 @@
                 android:id="@+id/tvPickupLocation"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Pickup: Connaught Place"
+                android:text="Pickup: "
                 android:textSize="14sp"
                 android:layout_marginTop="8dp" />
 
@@ -54,7 +54,7 @@
                 android:id="@+id/tvDropLocation"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Drop: Dwarka Sector 21"
+                android:text="Drop: "
                 android:textSize="14sp"
                 android:layout_marginTop="4dp" />
 
@@ -62,7 +62,7 @@
                 android:id="@+id/tvOtp"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="OTP: 1234"
+                android:text="OTP: "
                 android:textSize="16sp"
                 android:textStyle="bold"
                 android:visibility="gone"

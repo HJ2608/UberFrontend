@@ -14,6 +14,13 @@ object StompManager {
     private var stompClient: StompClient? = null
     private val disposables = CompositeDisposable()
     private var connected = false
+    private var onConnectedListener: (() -> Unit)? = null
+    private var lifecycleDisposable: io.reactivex.disposables.Disposable? = null
+    private val topicDisposables = CompositeDisposable()
+
+    fun setOnConnectedListener(listener: (() -> Unit)?) {
+        onConnectedListener = listener
+    }
 
     fun connect(baseUrl: String, token: String) {
         if (connected && stompClient != null) return
@@ -25,14 +32,15 @@ object StompManager {
 
         val client = Stomp.over(Stomp.ConnectionProvider.OKHTTP, wsUrl)
         stompClient = client
+        lifecycleDisposable?.dispose()
 
-        disposables.add(
-            client.lifecycle().subscribe({ event ->
+        lifecycleDisposable = client.lifecycle().subscribe({ event ->
                 Log.e(TAG, "Lifecycle event = ${event.type}")
                 when (event.type) {
                     LifecycleEvent.Type.OPENED -> {
                         connected = true
                         Log.e(TAG, "STOMP Connected")
+                        onConnectedListener?.invoke()
                     }
                     LifecycleEvent.Type.CLOSED -> {
                         connected = false
@@ -47,23 +55,28 @@ object StompManager {
             }, { err ->
                 Log.e(TAG, "Lifecycle subscribe error", err)
             })
-        )
+
 
         client.connect(headers)
+
+
     }
 
     fun clientOrNull(): StompClient? = stompClient
 
     fun clearSubscriptions() {
         // Clears topic subscriptions you added via disposables.add(...)
-        disposables.clear()
+        topicDisposables.clear()
         // Note: This also removes lifecycle subscription; if you want lifecycle always on, separate it.
     }
 
     fun disconnect() {
         try { stompClient?.disconnect() } catch (_: Exception) {}
+        lifecycleDisposable?.dispose()
+        lifecycleDisposable = null
+        topicDisposables.clear()
+        stompClient?.disconnect()
         stompClient = null
         connected = false
-        disposables.clear()
     }
 }

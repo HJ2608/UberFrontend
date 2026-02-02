@@ -36,6 +36,8 @@ import io.reactivex.disposables.Disposable
 import ua.naiksoftware.stomp.dto.StompMessage
 import java.net.URLEncoder
 
+private const val LOCATION_REQ_CODE = 101
+
 class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
 
     private lateinit var binding: FragmentDriverHomeBinding
@@ -51,6 +53,16 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
     private var rideReqDisp: Disposable? = null
     private var rideCancelDisp: Disposable? = null
 
+    private var currentPickupLat: Double? = null
+
+    private var currentPickupLng: Double? = null
+
+    private var currentDropLng: Double? = null
+
+    private var currentDropLat: Double? = null
+
+
+
 
     //private lateinit var stompClient: StompClient
     private lateinit var stompClient: ua.naiksoftware.stomp.StompClient
@@ -58,7 +70,7 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         binding = FragmentDriverHomeBinding.bind(view)
-        Log.i("Rachit","Healthy app")
+        Log.i("Harshit","Healthy app")
         setupOnlineSwitch()
         setupButtons()
         connectStomp()
@@ -92,7 +104,15 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
                     api.updateOnlineStatus(driverId, status, "Bearer $token")
                     val msg = if (isChecked) "You are Online" else "You are Offline"
                     Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
-                    if (isChecked) startLocationUpdates() else stopLocationUpdates()
+                    if (isChecked) {
+                        if (!hasLocationPermission()) {
+                            requestLocationPermission()
+                        } else {
+                            startLocationUpdates()
+                        }
+                    } else {
+                        stopLocationUpdates()
+                    }
                 }catch (e: HttpException) {
                     if (e.code() == 404) {
                         Toast.makeText(
@@ -127,13 +147,18 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
         binding.btnAcceptRide.setOnClickListener {
             currentRideId?.let { rideId ->
                 isOnActiveRide = true
-                sendRideResponse("ACCEPTED", rideId)
+                sendRideResponse(true, rideId)
                 Log.i("DriverHomeFragment", "Accept clicked for ride $rideId")
                 Toast.makeText(requireContext(), "Ride Accepted", Toast.LENGTH_SHORT).show()
                 pendingRides.remove(rideId)
-                val json = JSONObject(stompMessage.payload)
-                val pickupLat = json.getDouble("pickupLat")
-                val pickupLng = json.getDouble("pickupLng")
+                val pickupLat = currentPickupLat
+                val pickupLng = currentPickupLng
+                val dropLat = currentDropLat
+                val dropLng = currentDropLng
+                if (pickupLat == null || pickupLng == null) {
+                    Toast.makeText(requireContext(), "Pickup location missing", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
 
                 showNextRide()
 
@@ -147,7 +172,10 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
                     R.id.action_driverHomeFragment_to_driverCurrentRideFragment,
                     bundleOf("rideId" to rideId,
                         "pickupLat" to pickupLat,
-                        "pickupLng" to pickupLng)
+                        "pickupLng" to pickupLng,
+                        "dropLat" to dropLat,
+                        "dropLng" to dropLng
+                    )
                 )
             }
         }
@@ -155,7 +183,7 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
 
         binding.btnRejectRide.setOnClickListener {
             currentRideId?.let { rideId ->
-                sendRideResponse("REJECTED", rideId)
+                sendRideResponse(false, rideId)
                 Log.i("DriverHomeFragment", "Reject clicked for ride $rideId")
                 Toast.makeText(requireContext(), "Ride Rejected", Toast.LENGTH_SHORT).show()
                 pendingRides.remove(rideId)
@@ -170,7 +198,7 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
 //        }
     }
 
-    private fun sendRideResponse(status: String, rideId: Int) {
+    private fun sendRideResponse(accepted: Boolean, rideId: Int) {
         val driverId = SessionManager.driverId
         val stomp = StompManager.clientOrNull() ?: run {
             Log.e("STOMP_FLOW", "No stomp client available")
@@ -182,8 +210,8 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
         }
         val payload = JSONObject().apply {
             put("rideId", rideId)
-            put("status", status)
             put("driverId", driverId)
+            put("accepted", accepted)
         }
 
         disposables.add(
@@ -233,16 +261,73 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
         val token = SessionManager.token ?: return
         Log.i("STOMP_FLOW", "JWT_TOKEN = ${token != null}")
 
+        disposables.clear()
         val headers = listOf(
             StompHeader("Authorization", "Bearer $token")
         )
 
         val encoded = URLEncoder.encode("Bearer $token", "UTF-8")
-        val wsUrl = "ws://192.168.1.5:9090/ws?token=$encoded"
+        val wsUrl = "ws://10.84.42.92:9090/ws?token=$encoded"
 
-        StompManager.connect("ws://192.168.1.5:9090", token)
+        StompManager.setOnConnectedListener {
+            requireActivity().runOnUiThread {
+                val stomp = StompManager.clientOrNull() ?: run {
+                    Log.e("STOMP_FLOW", "Stomp is null even after OPENED")
+                    return@runOnUiThread
+                }
 
-        val stomp = StompManager.clientOrNull()
+                Log.e("STOMP_FLOW", "OPENED -> now subscribing")
+
+                testDisp = stomp.topic("/topic/ride-request-test")
+                    .subscribe({ msg ->
+                        Log.e("WS_TEST", "BROADCAST RECEIVED: ${msg.payload}")
+                    }, { err ->
+                        Log.e("WS_TEST", "BROADCAST SUB ERROR", err)
+                    })
+                disposables.add(testDisp!!)
+
+                rideReqDisp = stomp.topic("/user/queue/ride-request")
+                    .subscribe({ stompMessage ->
+                        Log.e("STOMP_FLOW", "RAW MESSAGE RECEIVED: ${stompMessage.payload}")
+                        val json = JSONObject(stompMessage.payload)
+                        val rideId = json.getInt("rideId")
+                        val pickupLat = json.getDouble("pickupLat")
+                        val pickupLng = json.getDouble("pickupLng")
+                        val dropLat = json.getDouble("dropLat")
+                        val dropLng = json.getDouble("dropLng")
+                        Log.e("STOMP_FLOW", "Parsed rideId=$rideId")
+                        requireActivity().runOnUiThread {
+                            currentPickupLat = pickupLat
+                            currentPickupLng = pickupLng
+                            currentDropLat = dropLat
+                            currentDropLng = dropLng
+                            handleIncomingRide(rideId)
+                        }
+                    }, { err ->
+                        Log.e("STOMP_FLOW", "ride-request SUB ERROR", err)
+                    })
+                disposables.add(rideReqDisp!!)
+
+                rideCancelDisp = stomp.topic("/user/queue/ride-cancelled")
+                    .subscribe({ stompMessage ->
+                        Toast.makeText(requireContext(), stompMessage.payload, Toast.LENGTH_SHORT).show()
+                        requireActivity().runOnUiThread {
+                            pendingRides.clear()
+                            showNextRide()
+                        }
+                    }, { err ->
+                        Log.e("STOMP_FLOW", "ride-cancelled SUB ERROR", err)
+                    })
+                disposables.add(rideCancelDisp!!)
+            }
+        }
+
+        StompManager.connect("ws://10.84.42.92:9090", token)
+
+        val stomp = StompManager.clientOrNull() ?: run {
+            Log.e("STOMP_FLOW", "Stomp not connected")
+            return
+        }
 
         // (Optional but recommended) lifecycle logging
 //        stompClient.lifecycle().subscribe { event ->
@@ -262,60 +347,64 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
 //                }
 //            }
 //        }
-        Log.e("STOMP_FLOW", "Subscribing to /user/queue/ride-request")
-
-        testDisp = stomp.topic("/topic/ride-request-test")
-            .subscribe({ msg ->
-                Log.e("WS_TEST", "BROADCAST RECEIVED: ${msg.payload}")
-            }, { err ->
-                Log.e("WS_TEST", "BROADCAST SUB ERROR", err)
-            })
-        disposables.add(testDisp!!)
-        //Check WS
-//        stompClient.topic("/topic/ride-request-test")
+//        Log.e("STOMP_FLOW", "Subscribing to /user/queue/ride-request")
+//
+//        testDisp = stomp.topic("/topic/ride-request-test")
 //            .subscribe({ msg ->
 //                Log.e("WS_TEST", "BROADCAST RECEIVED: ${msg.payload}")
 //            }, { err ->
 //                Log.e("WS_TEST", "BROADCAST SUB ERROR", err)
 //            })
-
-        // Subscribe to ride requests
-        rideReqDisp = stomp.topic("/user/queue/ride-request")
-            .subscribe ({ stompMessage ->
-                Log.e("STOMP_FLOW", "RAW MESSAGE RECEIVED: ${stompMessage.payload}")
-                val json = JSONObject(stompMessage.payload)
-                if (!json.has("rideId")) {
-                    Log.e("STOMP_FLOW", "Missing rideId in payload: ${stompMessage.payload}")
-                    return@subscribe
-                }
-                val rideId = json.getInt("rideId")
-                Log.e("STOMP_FLOW", "Parsed rideId=$rideId")
-                requireActivity().runOnUiThread {
-                    Log.e("STOMP_FLOW", "Calling handleIncomingRide($rideId)")
-                    handleIncomingRide(rideId)
-                }
-            }, { err ->
-            Log.e("STOMP_FLOW", "ride-request SUB ERROR", err)
-        })
-        disposables.add(rideReqDisp!!)
-
-        rideCancelDisp=stomp.topic("/user/queue/ride-cancelled")
-            .subscribe ({ stompMessage ->
-                requireActivity().runOnUiThread {
-                    Toast.makeText(
-                        requireContext(),
-                        stompMessage.payload,
-                        Toast.LENGTH_SHORT
-                    ).show()
-
-                    // clear pending if needed
-                    pendingRides.clear()
-                    showNextRide()
-                }
-            },{err ->
-                Log.e("STOMP_FLOW", "ride-cancelled SUB ERROR", err)
-            })
-        disposables.add(rideCancelDisp!!)
+//        disposables.add(testDisp!!)
+//        //Check WS
+////        stompClient.topic("/topic/ride-request-test")
+////            .subscribe({ msg ->
+////                Log.e("WS_TEST", "BROADCAST RECEIVED: ${msg.payload}")
+////            }, { err ->
+////                Log.e("WS_TEST", "BROADCAST SUB ERROR", err)
+////            })
+//
+//        // Subscribe to ride requests
+//        rideReqDisp = stomp.topic("/user/queue/ride-request")
+//            .subscribe ({ stompMessage ->
+//                Log.e("STOMP_FLOW", "RAW MESSAGE RECEIVED: ${stompMessage.payload}")
+//                val json = JSONObject(stompMessage.payload)
+//                if (!json.has("rideId")) {
+//                    Log.e("STOMP_FLOW", "Missing rideId in payload: ${stompMessage.payload}")
+//                    return@subscribe
+//                }
+//                val rideId = json.getInt("rideId")
+//                val pickupLat = json.getDouble("pickupLat")
+//                val pickupLng = json.getDouble("pickupLng")
+//                Log.e("STOMP_FLOW", "Parsed rideId=$rideId")
+//                requireActivity().runOnUiThread {
+//                    Log.e("STOMP_FLOW", "Calling handleIncomingRide($rideId)")
+//                    currentPickupLat = pickupLat
+//                    currentPickupLng = pickupLng
+//                    handleIncomingRide(rideId)
+//                }
+//            }, { err ->
+//            Log.e("STOMP_FLOW", "ride-request SUB ERROR", err)
+//        })
+//        disposables.add(rideReqDisp!!)
+//
+//        rideCancelDisp=stomp.topic("/user/queue/ride-cancelled")
+//            .subscribe ({ stompMessage ->
+//                requireActivity().runOnUiThread {
+//                    Toast.makeText(
+//                        requireContext(),
+//                        stompMessage.payload,
+//                        Toast.LENGTH_SHORT
+//                    ).show()
+//
+//                    // clear pending if needed
+//                    pendingRides.clear()
+//                    showNextRide()
+//                }
+//            },{err ->
+//                Log.e("STOMP_FLOW", "ride-cancelled SUB ERROR", err)
+//            })
+//        disposables.add(rideCancelDisp!!)
     }
 
 //    private fun connectWebSocket() {
@@ -446,6 +535,53 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
 //            driverMarker!!.position = position
 //        }
 //    }
+
+    private fun hasLocationPermission(): Boolean {
+        val fine = androidx.core.content.ContextCompat.checkSelfPermission(
+            requireContext(),
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        val coarse = androidx.core.content.ContextCompat.checkSelfPermission(
+            requireContext(),
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        return fine || coarse
+    }
+
+    private fun requestLocationPermission() {
+        requestPermissions(
+            arrayOf(
+                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION
+            ),
+            LOCATION_REQ_CODE
+        )
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == LOCATION_REQ_CODE) {
+            if (grantResults.isNotEmpty() &&
+                grantResults.any { it == android.content.pm.PackageManager.PERMISSION_GRANTED }
+            ) {
+                Toast.makeText(requireContext(), "Location permission granted", Toast.LENGTH_SHORT).show()
+                startLocationUpdates()
+            } else {
+                Toast.makeText(
+                    requireContext(),
+                    "Location permission is required for driver navigation",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
 
     override fun onDestroyView() {
         super.onDestroyView()

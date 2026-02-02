@@ -10,8 +10,11 @@ import com.example.uberfrontend.data.model.LoginRequestDto
 import com.example.uberfrontend.data.model.LoginResponseDto
 import com.example.uberfrontend.data.model.PaymentRequestDto
 import com.example.uberfrontend.data.model.RideCardResponse
+import com.example.uberfrontend.data.model.RideDetail
 import com.example.uberfrontend.data.model.SignupRequestDto
 import com.example.uberfrontend.data.model.SignupResponseDto
+import com.example.uberfrontend.data.model.StartRideRequest
+import com.example.uberfrontend.data.model.StartRideResponse
 import com.example.uberfrontend.data.model.UpdateLocationRequestDto
 import retrofit2.Response
 import retrofit2.http.Body
@@ -112,5 +115,17 @@ interface DriverApi {
 
     @GET("driver/earnings/rides")
     suspend fun getEarningTrips(): List<DriverLedgerDto>
+
+    @GET("/api/rides/driver/current/{rideId}")
+    suspend fun getRideDetails(
+        @Path("rideId") rideId: Int,
+        @Header("Authorization") token: String
+    ): RideDetail
+
+    @POST("/api/rides/start")
+    suspend fun startRide(
+        @Body body: StartRideRequest,
+        @Header("Authorization") token: String
+    ): retrofit2.Response<StartRideResponse>
 
 }
