@@ -62,11 +62,21 @@
     <fragment
         android:id="@+id/driverCurrentRideFragment"
         android:name="com.example.uberfrontend.ui.home.DriverCurrentRideFragment"
-        android:label="Current Ride" />
+        android:label="Current Ride" >
+        <action
+            android:id="@+id/action_driverCurrentRideFragment_to_driverPaymentFragment"
+            app:destination="@id/driverPaymentFragment" />
+
+    </fragment>
 
     <fragment
         android:id="@+id/profileFragment"
         android:name="com.example.uberfrontend.ui.profile.ProfileFragment"
         android:label="Profile" />
+
+    <fragment
+        android:id="@+id/driverPaymentFragment"
+        android:name="com.example.uberfrontend.ui.drop.DriverPaymentFragment"
+        android:label="DriverPaymentFragment" />
 
 </navigation>

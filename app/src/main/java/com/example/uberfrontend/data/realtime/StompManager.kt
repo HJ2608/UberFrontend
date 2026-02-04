@@ -20,7 +20,13 @@ object StompManager {
 
     fun setOnConnectedListener(listener: (() -> Unit)?) {
         onConnectedListener = listener
+        if (connected && stompClient != null) {
+            listener?.invoke()
+        }
     }
+
+    fun isConnected(): Boolean = connected && stompClient != null
+
 
     fun connect(baseUrl: String, token: String) {
         if (connected && stompClient != null) return

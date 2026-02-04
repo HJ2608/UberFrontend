@@ -54,17 +54,15 @@ interface RideApi {
         @Query("rideId") rideId: Int
     ): Response<RideCardResponse>
 
+    @POST("api/rides/{rideId}/end")
+    suspend fun endRide(
+        @Path("rideId") rideId: Int
+    ): Response<Unit>
 
     @POST("api/rides/{rideId}/payment-success")
     suspend fun markPaymentSuccess(
         @Path("rideId") rideId: Int,
         @Body body: PaymentRequestDto
-    ): Response<Unit>
-
-
-    @POST("api/rides/{rideId}/end")
-    suspend fun endRide(
-        @Path("rideId") rideId: Int
     ): Response<Unit>
 }
 
@@ -96,7 +94,7 @@ interface DriverApi {
         @Body body: UpdateLocationRequestDto
     ): Response<Unit>
 
-    @GET("/drivers/by-user/{userId}")
+    @GET("drivers/by-user/{userId}")
     suspend fun getDriverIdFromUserId(
         @Path("userId") userId: Int,
         @Header("Authorization") token: String
@@ -116,13 +114,13 @@ interface DriverApi {
     @GET("driver/earnings/rides")
     suspend fun getEarningTrips(): List<DriverLedgerDto>
 
-    @GET("/api/rides/driver/current/{rideId}")
+    @GET("api/rides/driver/current/{rideId}")
     suspend fun getRideDetails(
         @Path("rideId") rideId: Int,
         @Header("Authorization") token: String
     ): RideDetail
 
-    @POST("/api/rides/start")
+    @POST("api/rides/start")
     suspend fun startRide(
         @Body body: StartRideRequest,
         @Header("Authorization") token: String

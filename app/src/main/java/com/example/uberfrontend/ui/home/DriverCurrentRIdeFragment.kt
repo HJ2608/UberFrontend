@@ -35,6 +35,8 @@ import com.example.uberfrontend.data.network.RideApi
 import com.example.uberfrontend.data.realtime.StompManager
 import io.reactivex.disposables.CompositeDisposable
 import org.json.JSONObject
+import androidx.core.os.bundleOf
+import androidx.navigation.fragment.findNavController
 
 
 class DriverCurrentRideFragment :
@@ -79,6 +81,7 @@ class DriverCurrentRideFragment :
 
         setupRideActionButton()
         loadRideDetailsIntoCard()
+        startLiveLocation()
         val client = StompManager.clientOrNull()
         if (client == null) {
             Toast.makeText(requireContext(), "Socket not connected", Toast.LENGTH_SHORT).show()
@@ -217,7 +220,6 @@ class DriverCurrentRideFragment :
                     binding.btnRideAction.text = "END RIDE"
                 }
                 "END RIDE" -> {
-                    // TODO: end ride API
                     viewLifecycleOwner.lifecycleScope.launch {
                         try {
                             val api = ApiClient.create(RideApi::class.java)
@@ -225,7 +227,10 @@ class DriverCurrentRideFragment :
 
                             if (resp.isSuccessful) {
                                 Toast.makeText(requireContext(), "Ride ended", Toast.LENGTH_SHORT).show()
-                                // navigate away / update UI
+                                findNavController().navigate(
+                                    R.id.action_driverCurrentRideFragment_to_driverPaymentFragment,
+                                    bundleOf("rideId" to rideId)
+                                )
                             } else {
                                 Toast.makeText(
                                     requireContext(),
@@ -288,7 +293,7 @@ class DriverCurrentRideFragment :
                 binding.btnRideAction.text = "END RIDE"   // ✅ better UX
                 phase = Phase.TO_DROP
                 loadRouteToPickup(LatLng(dropLat, dropLng))
-                startLiveLocation()
+                //startLiveLocation()
 
             } catch (e: Exception) {
                 Log.e(TAG, "startRide failed", e)
@@ -460,15 +465,15 @@ class DriverCurrentRideFragment :
         val client = StompManager.clientOrNull() ?: return
 
         val payload = JSONObject().apply {
-            put("rideId", rideId)
             put("lat", lat)
             put("lng", lng)
+            put("timestamp", System.currentTimeMillis())
         }
 
         stompDisposables.add(
             client.send("/app/ride/location", payload.toString())
                 .subscribe(
-                    { /* ok */ },
+                    { Log.d("STOMP_FLOW", "location sent") },
                     { err -> Log.e("STOMP_FLOW", "location send error", err) }
                 )
         )

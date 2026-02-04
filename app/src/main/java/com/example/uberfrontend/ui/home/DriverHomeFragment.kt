@@ -33,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import retrofit2.HttpException
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.disposables.Disposable
+import ua.naiksoftware.stomp.StompClient
 import ua.naiksoftware.stomp.dto.StompMessage
 import java.net.URLEncoder
 
@@ -61,8 +62,7 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
 
     private var currentDropLat: Double? = null
 
-
-
+    private var homeSubscribed = false
 
     //private lateinit var stompClient: StompClient
     private lateinit var stompClient: ua.naiksoftware.stomp.StompClient
@@ -77,6 +77,35 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
     }
 
     private var ignoreSwitchChange = false
+
+    override fun onStart() {
+
+        super.onStart()
+        val nav = findNavController()
+        val finished = nav.currentBackStackEntry
+            ?.savedStateHandle
+            ?.get<Boolean>("RIDE_FINISHED") == true
+
+        if (finished) {
+            nav.currentBackStackEntry?.savedStateHandle?.remove<Boolean>("RIDE_FINISHED")
+
+            isOnActiveRide = false
+            currentRideId = null
+            pendingRides.clear()
+            showNextRide()
+            Log.e("STOMP_FLOW", "✅ Reset after ride completion")
+        }
+
+        connectStomp()
+        if (::binding.isInitialized && binding.switchOnline.isChecked) {
+            if (hasLocationPermission()) {
+                startLocationUpdates()
+            } else {
+                requestLocationPermission()
+            }
+        }
+    }
+
     private fun setupOnlineSwitch() {
         binding.switchOnline.setOnCheckedChangeListener { _, isChecked ->
             if (ignoreSwitchChange) return@setOnCheckedChangeListener
@@ -200,6 +229,7 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
 
     private fun sendRideResponse(accepted: Boolean, rideId: Int) {
         val driverId = SessionManager.driverId
+        Log.e("STOMP_FLOW", "incoming ride: $rideId | isOnActiveRide=$isOnActiveRide")
         val stomp = StompManager.clientOrNull() ?: run {
             Log.e("STOMP_FLOW", "No stomp client available")
             return
@@ -228,13 +258,12 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
             "STOMP_FLOW",
             "handleIncomingRide called | rideId=$rideId | active=$isOnActiveRide"
         )
-        if(isOnActiveRide) return
+
         if (!pendingRides.contains(rideId)) {
             pendingRides.add(rideId)
         }
 
-        // If no ride is being displayed, show the first one
-        if (currentRideId == null) {
+        if (!isOnActiveRide && currentRideId == null) {
             showNextRide()
         }
     }
@@ -261,7 +290,7 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
         val token = SessionManager.token ?: return
         Log.i("STOMP_FLOW", "JWT_TOKEN = ${token != null}")
 
-        disposables.clear()
+//        disposables.clear()
         val headers = listOf(
             StompHeader("Authorization", "Bearer $token")
         )
@@ -276,49 +305,51 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
                     return@runOnUiThread
                 }
 
+                subscribeHomeQueues(stomp)
+
                 Log.e("STOMP_FLOW", "OPENED -> now subscribing")
 
-                testDisp = stomp.topic("/topic/ride-request-test")
-                    .subscribe({ msg ->
-                        Log.e("WS_TEST", "BROADCAST RECEIVED: ${msg.payload}")
-                    }, { err ->
-                        Log.e("WS_TEST", "BROADCAST SUB ERROR", err)
-                    })
-                disposables.add(testDisp!!)
-
-                rideReqDisp = stomp.topic("/user/queue/ride-request")
-                    .subscribe({ stompMessage ->
-                        Log.e("STOMP_FLOW", "RAW MESSAGE RECEIVED: ${stompMessage.payload}")
-                        val json = JSONObject(stompMessage.payload)
-                        val rideId = json.getInt("rideId")
-                        val pickupLat = json.getDouble("pickupLat")
-                        val pickupLng = json.getDouble("pickupLng")
-                        val dropLat = json.getDouble("dropLat")
-                        val dropLng = json.getDouble("dropLng")
-                        Log.e("STOMP_FLOW", "Parsed rideId=$rideId")
-                        requireActivity().runOnUiThread {
-                            currentPickupLat = pickupLat
-                            currentPickupLng = pickupLng
-                            currentDropLat = dropLat
-                            currentDropLng = dropLng
-                            handleIncomingRide(rideId)
-                        }
-                    }, { err ->
-                        Log.e("STOMP_FLOW", "ride-request SUB ERROR", err)
-                    })
-                disposables.add(rideReqDisp!!)
-
-                rideCancelDisp = stomp.topic("/user/queue/ride-cancelled")
-                    .subscribe({ stompMessage ->
-                        Toast.makeText(requireContext(), stompMessage.payload, Toast.LENGTH_SHORT).show()
-                        requireActivity().runOnUiThread {
-                            pendingRides.clear()
-                            showNextRide()
-                        }
-                    }, { err ->
-                        Log.e("STOMP_FLOW", "ride-cancelled SUB ERROR", err)
-                    })
-                disposables.add(rideCancelDisp!!)
+//                testDisp = stomp.topic("/topic/ride-request-test")
+//                    .subscribe({ msg ->
+//                        Log.e("WS_TEST", "BROADCAST RECEIVED: ${msg.payload}")
+//                    }, { err ->
+//                        Log.e("WS_TEST", "BROADCAST SUB ERROR", err)
+//                    })
+//                disposables.add(testDisp!!)
+//
+//                rideReqDisp = stomp.topic("/user/queue/ride-request")
+//                    .subscribe({ stompMessage ->
+//                        Log.e("STOMP_FLOW", "RAW MESSAGE RECEIVED: ${stompMessage.payload}")
+//                        val json = JSONObject(stompMessage.payload)
+//                        val rideId = json.getInt("rideId")
+//                        val pickupLat = json.getDouble("pickupLat")
+//                        val pickupLng = json.getDouble("pickupLng")
+//                        val dropLat = json.getDouble("dropLat")
+//                        val dropLng = json.getDouble("dropLng")
+//                        Log.e("STOMP_FLOW", "Parsed rideId=$rideId")
+//                        requireActivity().runOnUiThread {
+//                            currentPickupLat = pickupLat
+//                            currentPickupLng = pickupLng
+//                            currentDropLat = dropLat
+//                            currentDropLng = dropLng
+//                            handleIncomingRide(rideId)
+//                        }
+//                    }, { err ->
+//                        Log.e("STOMP_FLOW", "ride-request SUB ERROR", err)
+//                    })
+//                disposables.add(rideReqDisp!!)
+//
+//                rideCancelDisp = stomp.topic("/user/queue/ride-cancelled")
+//                    .subscribe({ stompMessage ->
+//                        Toast.makeText(requireContext(), stompMessage.payload, Toast.LENGTH_SHORT).show()
+//                        requireActivity().runOnUiThread {
+//                            pendingRides.clear()
+//                            showNextRide()
+//                        }
+//                    }, { err ->
+//                        Log.e("STOMP_FLOW", "ride-cancelled SUB ERROR", err)
+//                    })
+//                disposables.add(rideCancelDisp!!)
             }
         }
 
@@ -469,6 +500,7 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
     private var locationCallback: LocationCallback? = null
 
     private fun startLocationUpdates() {
+        Log.i("STOMP_FLOW","startLocationUpdates() is called")
         fusedLocationClient =
             LocationServices.getFusedLocationProviderClient(requireContext())
 
@@ -481,6 +513,9 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 val location = result.lastLocation ?: return
+
+                sendLocationViaSocket(location.latitude, location.longitude)
+
                 sendLocationToBackend(location.latitude, location.longitude)
             }
         }
@@ -492,8 +527,61 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
         )
     }
 
+    private fun subscribeHomeQueues(stomp: StompClient) {
+        if (homeSubscribed) return
+        homeSubscribed = true
+        testDisp?.dispose()
+        rideReqDisp?.dispose()
+        rideCancelDisp?.dispose()
+
+        testDisp = stomp.topic("/topic/ride-request-test")
+            .subscribe({ msg ->
+                Log.e("WS_TEST", "BROADCAST RECEIVED: ${msg.payload}")
+            }, { err ->
+                Log.e("WS_TEST", "BROADCAST SUB ERROR", err)
+            })
+        disposables.add(testDisp!!)
+        rideReqDisp = stomp.topic("/user/queue/ride-request")
+            .subscribe({ stompMessage ->
+                Log.e("STOMP_FLOW", "RAW MESSAGE RECEIVED: ${stompMessage.payload}")
+                val json = JSONObject(stompMessage.payload)
+                val rideId = json.getInt("rideId")
+                val pickupLat = json.getDouble("pickupLat")
+                val pickupLng = json.getDouble("pickupLng")
+                val dropLat = json.getDouble("dropLat")
+                val dropLng = json.getDouble("dropLng")
+                Log.e("STOMP_FLOW", "Parsed rideId=$rideId")
+                requireActivity().runOnUiThread {
+                    currentPickupLat = pickupLat
+                    currentPickupLng = pickupLng
+                    currentDropLat = dropLat
+                    currentDropLng = dropLng
+                    handleIncomingRide(rideId)
+                }
+            }, { err ->
+                Log.e("STOMP_FLOW", "ride-request SUB ERROR", err)
+            })
+        disposables.add(rideReqDisp!!)
+
+        rideCancelDisp = stomp.topic("/user/queue/ride-cancelled")
+            .subscribe({ stompMessage ->
+                Toast.makeText(requireContext(), stompMessage.payload, Toast.LENGTH_SHORT).show()
+                requireActivity().runOnUiThread {
+                    pendingRides.clear()
+                    showNextRide()
+                }
+            }, { err ->
+                Log.e("STOMP_FLOW", "ride-cancelled SUB ERROR", err)
+            })
+        disposables.add(rideCancelDisp!!)
+
+        Log.e("STOMP_FLOW", "✅ HOME subscribed")
+    }
+
     private fun stopLocationUpdates() {
-        locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
+        if (::fusedLocationClient.isInitialized) {
+            locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
+        }
         locationCallback = null
     }
 
@@ -514,6 +602,24 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
                 e.printStackTrace()
             }
         }
+    }
+
+    private fun sendLocationViaSocket(lat: Double, lng: Double) {
+        val client = StompManager.clientOrNull() ?: return
+
+        val payload = JSONObject().apply {
+            put("lat", lat)
+            put("lng", lng)
+            put("timestamp", System.currentTimeMillis())
+        }
+
+        disposables.add(
+            client.send("/app/ride/location", payload.toString())
+                .subscribe(
+                    { Log.d("STOMP_FLOW", "location sent") },
+                    { err -> Log.e("STOMP_FLOW", "location send error", err) }
+                )
+        )
     }
 
 //    private fun updateDriverMarker(position: LatLng) {
@@ -583,10 +689,20 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        stopLocationUpdates()
+        homeSubscribed = false
+
+        testDisp?.dispose(); testDisp = null
+        rideReqDisp?.dispose(); rideReqDisp = null
+        rideCancelDisp?.dispose(); rideCancelDisp = null
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
-        locationCallback?.let {
-            fusedLocationClient.removeLocationUpdates(it)
-        }
+        stopLocationUpdates()
     }
+
+
 }
