@@ -22,7 +22,7 @@ class DriverWebSocketClient(
 
     fun connect() {
         val request = Request.Builder()
-            .url("ws://10.84.42.92:9090/ws") // emulator → localhost
+            .url("ws://10.164.108.92:9090/ws") // emulator → localhost
             .addHeader("Authorization", "Bearer $token")
             .build()
 

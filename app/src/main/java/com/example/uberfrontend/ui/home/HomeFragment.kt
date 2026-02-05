@@ -38,6 +38,7 @@ import com.example.uberfrontend.data.network.ApiClient
 import com.example.uberfrontend.data.network.RideApi
 import com.example.uberfrontend.data.model.CreateRideRequestDto
 import com.example.uberfrontend.data.model.RideCardResponse
+import com.example.uberfrontend.data.realtime.StompManager
 import com.example.uberfrontend.data.session.SessionManager
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.Marker
@@ -56,6 +57,17 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
         DROP
     }
 
+    private enum class UserPhase { WAITING_ASSIGN, TO_PICKUP, TO_DROP }
+    private var phase: UserPhase = UserPhase.WAITING_ASSIGN
+
+    private val wsDisposables = io.reactivex.disposables.CompositeDisposable()
+    private var rideStatusDisp: Disposable? = null
+    private var rideLocationDisp: Disposable? = null
+
+    private var assignedDriverId: Int? = null
+    private var lastDriverLatLng: LatLng? = null
+
+    private var routeJob: kotlinx.coroutines.Job? = null
     private enum class RideType {
         MINI,
         SEDAN,
@@ -212,11 +224,14 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
             Toast.makeText(requireContext(), "Ride cancelled", Toast.LENGTH_SHORT).show()
         }
 
-        stompClient = Stomp.over(
-            Stomp.ConnectionProvider.OKHTTP,
-            "ws://YOUR_SERVER_URL/ws"
-        )
-        stompClient.connect()
+        SessionManager.init(requireContext())
+        val token = SessionManager.token ?: return
+
+        StompManager.setOnConnectedListener {
+            Log.e("STOMP_FLOW", "✅ USER socket connected")
+        }
+
+        StompManager.connect("ws://10.164.108.92:9090", token)
     }
 
     private var currentRideId: Int? = null
@@ -258,6 +273,8 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
                         }
 
                         currentRideId = rideId
+                        subscribeRideStatus(rideId)
+                        subscribeRideLocation(rideId)
 
                         Toast.makeText(requireContext(), "Ride requested! Finding driver...", Toast.LENGTH_SHORT).show()
                         binding.btnConfirmRide.text = "Finding Driver..."
@@ -283,6 +300,151 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
             }
         }
     }
+
+    private fun subscribeRideStatus(rideId: Int) {
+        val stomp = StompManager.clientOrNull() ?: return
+
+        rideStatusDisp?.dispose()
+        rideStatusDisp = stomp.topic("/topic/ride/$rideId")
+            .subscribe({ msg ->
+                Log.e("USER_WS", "ride status payload=${msg.payload}")
+
+                // Expecting: { "rideId": 123, "status": "ASSIGNED", "driverId": 45 }
+                val json = org.json.JSONObject(msg.payload)
+                val status = json.optString("status")
+
+                if (status == "ASSIGNED") {
+                    assignedDriverId = json.optInt("driverId")
+                    phase = UserPhase.TO_PICKUP
+
+                    // optionally fetch ride card via REST once assigned:
+                    fetchAndShowRideCard(rideId)
+
+                    Log.e("USER_WS", "✅ ASSIGNED -> start showing driver->pickup route")
+                    redrawRouteIfPossible()
+                }
+
+                if (status == "ONGOING") {
+                    phase = UserPhase.TO_DROP
+                    Log.e("USER_WS", "✅ ONGOING -> switch to driver->drop route")
+                    redrawRouteIfPossible()
+                }
+
+            }, { err ->
+                Log.e("USER_WS", "ride status sub error", err)
+            })
+
+        wsDisposables.add(rideStatusDisp!!)
+    }
+
+    private fun subscribeRideLocation(rideId: Int) {
+        val stomp = StompManager.clientOrNull() ?: return
+
+        rideLocationDisp?.dispose()
+        rideLocationDisp = stomp.topic("/topic/ride/$rideId/location")
+            .subscribe({ msg ->
+                // Backend sends RideLocationBroadcast(driverId, lat, lng, timestamp)
+                val json = org.json.JSONObject(msg.payload)
+                val lat = json.optDouble("lat", Double.NaN)
+                val lng = json.optDouble("lng", Double.NaN)
+                if (lat.isNaN() || lng.isNaN()) return@subscribe
+
+                val pos = LatLng(lat, lng)
+                lastDriverLatLng = pos
+
+                requireActivity().runOnUiThread {
+                    updateDriverMarker(pos)
+                }
+
+                // throttle route redraw (Directions API is expensive)
+                redrawRouteIfPossibleThrottled()
+
+            }, { err ->
+                Log.e("USER_WS", "ride location sub error", err)
+            })
+
+        wsDisposables.add(rideLocationDisp!!)
+    }
+
+    private fun fetchAndShowRideCard(rideId: Int) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val api = ApiClient.create(RideApi::class.java)
+                val resp = api.getRideCard(rideId)
+                if (resp.isSuccessful && resp.body() != null) {
+                    withContext(Dispatchers.Main) { showRideCard(resp.body()!!) }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    private var lastRouteRedrawAt = 0L
+
+    private fun redrawRouteIfPossibleThrottled() {
+        val now = System.currentTimeMillis()
+        if (now - lastRouteRedrawAt < 8000) return // every 8s
+        lastRouteRedrawAt = now
+        redrawRouteIfPossible()
+    }
+    private fun redrawRouteIfPossible() {
+        val driverPos = lastDriverLatLng ?: return
+        val pickup = pickupLatLng ?: return
+        val drop = dropLatLng ?: return
+
+        val dest = when (phase) {
+            UserPhase.TO_PICKUP -> pickup
+            UserPhase.TO_DROP -> drop
+            else -> return
+        }
+
+        // cancel previous directions call if still running
+        routeJob?.cancel()
+        routeJob = lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val key = getMapsApiKey()
+                if (key.isBlank()) return@launch
+
+                val origin = "${driverPos.latitude},${driverPos.longitude}"
+                val destination = "${dest.latitude},${dest.longitude}"
+
+                val response = GoogleDirectionsClient.api.getRoute(
+                    origin = origin,
+                    destination = destination,
+                    apiKey = key
+                )
+
+                if (!response.isSuccessful) return@launch
+
+                val points = response.body()
+                    ?.routes?.firstOrNull()
+                    ?.overview_polyline?.points
+                    ?: return@launch
+
+                val decoded = decodePolyline(points)
+
+                withContext(Dispatchers.Main) {
+                    if (!::googleMap.isInitialized) return@withContext
+
+                    // IMPORTANT: don't clear map each time (or you'll lose markers)
+                    // Instead: keep references to polylines and replace them
+                    drawOrReplaceUserPolyline(decoded)
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    private var liveRoutePolyline: com.google.android.gms.maps.model.Polyline? = null
+    private fun drawOrReplaceUserPolyline(path: List<LatLng>) {
+        liveRoutePolyline?.remove()
+        liveRoutePolyline = googleMap.addPolyline(
+            PolylineOptions()
+                .addAll(path)
+                .width(12f)
+        )
+    }
+
+
+
 
     private fun startPollingForDriver(rideId: Int) {
 
@@ -371,6 +533,10 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
             stompClient.disconnect()
         }
 
+        wsDisposables.clear()
+        rideStatusDisp?.dispose(); rideStatusDisp = null
+        rideLocationDisp?.dispose(); rideLocationDisp = null
+        routeJob?.cancel(); routeJob = null
         stopPolling()
         _binding = null
     }
@@ -724,6 +890,7 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
             }, { error ->
                 Log.e("WS", error.message ?: "Socket error")
             })
+
     }
 
     private var driverMarker: Marker? = null

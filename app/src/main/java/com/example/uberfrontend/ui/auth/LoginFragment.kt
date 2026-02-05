@@ -68,7 +68,7 @@ class LoginFragment : Fragment() {
                     when (res.role) {
                         "DRIVER" -> {
                             findNavController().navigate(
-                                R.id.action_loginFragment_to_driverHomeFragment
+                                R.id.action_loginFragment_to_driverMainFragment
                             )
                         }
                         "USER" -> {

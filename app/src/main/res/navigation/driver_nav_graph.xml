@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/driver_nav_graph"
+    app:startDestination="@id/driverHomeFragment">
+
+    <fragment
+        android:id="@+id/driverHomeFragment"
+        android:name="com.example.uberfrontend.ui.home.DriverHomeFragment"
+        android:label="Driver Home">
+        <action
+            android:id="@+id/action_driverHomeFragment_to_driverCurrentRideFragment"
+            app:destination="@id/driverCurrentRideFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/driverLedgerFragment"
+        android:name="com.example.uberfrontend.ui.profile.DriverLedgerFragment"
+        android:label="Ledger" />
+
+    <fragment
+        android:id="@+id/driverCurrentRideFragment"
+        android:name="com.example.uberfrontend.ui.home.DriverCurrentRideFragment"
+        android:label="Current Ride">
+        <action
+            android:id="@+id/action_driverCurrentRideFragment_to_driverPaymentFragment"
+            app:destination="@id/driverPaymentFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/driverPaymentFragment"
+        android:name="com.example.uberfrontend.ui.drop.DriverPaymentFragment"
+        android:label="Payment" />
+
+</navigation>

@@ -10,7 +10,7 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 
 object ApiClient {
 
-    private const val BASE_URL = "http://10.84.42.92:9090/"//"http://10.83.49.29:9090/"//
+    private const val BASE_URL = "http://10.164.108.92:9090/"//"http://10.83.49.29:9090/"//
 
     private val moshi = Moshi.Builder()
         .add(KotlinJsonAdapterFactory())

@@ -4,7 +4,6 @@
     android:id="@+id/nav_graph"
     app:startDestination="@id/chooseRoleFragment">
 
-    <!--SIGNUP-->
     <fragment
         android:id="@+id/signupFragment"
         android:name="com.example.uberfrontend.ui.auth.SignupFragment"
@@ -25,25 +24,29 @@
             app:destination="@id/loginFragment"/>
     </fragment>
 
-    <!--LOGIN-->
     <fragment
         android:id="@+id/loginFragment"
         android:name="com.example.uberfrontend.ui.auth.LoginFragment"
         android:label="Login" >
-        <!-- When login succeeds, we’ll navigate to home -->
+
         <action
             android:id="@+id/action_loginFragment_to_homeFragment"
             app:destination="@id/homeFragment" />
 
         <action
-            android:id="@+id/action_loginFragment_to_driverHomeFragment"
-            app:destination="@id/driverHomeFragment" />
+            android:id="@+id/action_loginFragment_to_driverMainFragment"
+            app:destination="@id/driverMainFragment" />
 
-        <!-- Login -> Signup -->
         <action
             android:id="@+id/action_loginFragment_to_signupFragment"
             app:destination="@id/signupFragment" />
     </fragment>
+
+
+    <fragment
+        android:id="@+id/driverMainFragment"
+        android:name="com.example.uberfrontend.ui.profile.DriverMainFragment"
+        android:label="Driver" />
 
     <fragment
         android:id="@+id/homeFragment"
