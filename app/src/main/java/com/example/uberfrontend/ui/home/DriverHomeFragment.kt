@@ -296,7 +296,7 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
         )
 
         val encoded = URLEncoder.encode("Bearer $token", "UTF-8")
-        val wsUrl = "ws://10.164.108.92:9090/ws?token=$encoded"
+        val wsUrl = "ws://192.168.1.8:9090/ws?token=$encoded"
 
         StompManager.setOnConnectedListener {
             requireActivity().runOnUiThread {
@@ -353,7 +353,7 @@ class DriverHomeFragment : Fragment(R.layout.fragment_driver_home) {
             }
         }
 
-        StompManager.connect("ws://10.164.108.92:9090", token)
+        StompManager.connect("ws://192.168.1.8:9090", token)
 
         val stomp = StompManager.clientOrNull() ?: run {
             Log.e("STOMP_FLOW", "Stomp not connected")

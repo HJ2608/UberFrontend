@@ -80,6 +80,9 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
     private lateinit var googleMap: GoogleMap
     private var _binding: FragmentHomeBinding? = null
     private val binding get() = _binding!!
+    lateinit var stompClient: StompClient
+    private var rideSubscription: Disposable? = null
+
     private val locationPermission = arrayOf(
         android.Manifest.permission.ACCESS_FINE_LOCATION,
         android.Manifest.permission.ACCESS_COARSE_LOCATION
@@ -93,8 +96,6 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
 
     private var pollingJob: kotlinx.coroutines.Job? = null
 
-    lateinit var stompClient: StompClient
-    private var rideSubscription: Disposable? = null
 
     private val autocompleteLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -231,7 +232,7 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
             Log.e("STOMP_FLOW", "✅ USER socket connected")
         }
 
-        StompManager.connect("ws://10.164.108.92:9090", token)
+        StompManager.connect("ws://192.168.1.8:9090", token)
     }
 
     private var currentRideId: Int? = null
@@ -279,7 +280,6 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
                         Toast.makeText(requireContext(), "Ride requested! Finding driver...", Toast.LENGTH_SHORT).show()
                         binding.btnConfirmRide.text = "Finding Driver..."
 
-                        subscribeToRideUpdates(rideId)
 
                         Toast.makeText(requireContext(), "RideId=$rideId", Toast.LENGTH_LONG).show()
                     }
@@ -313,22 +313,48 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
                 val json = org.json.JSONObject(msg.payload)
                 val status = json.optString("status")
 
-                if (status == "ASSIGNED") {
-                    assignedDriverId = json.optInt("driverId")
-                    phase = UserPhase.TO_PICKUP
+                when(status){
+                    "ASSIGNED" -> {
+                        assignedDriverId = json.optInt("driverId")
+                        phase = UserPhase.TO_PICKUP
 
-                    // optionally fetch ride card via REST once assigned:
-                    fetchAndShowRideCard(rideId)
 
-                    Log.e("USER_WS", "✅ ASSIGNED -> start showing driver->pickup route")
-                    redrawRouteIfPossible()
+                        fetchAndShowRideCard(rideId)
+
+                        Log.e("USER_WS", "✅ ASSIGNED -> start showing driver->pickup route")
+                        redrawRouteIfPossible()
+                    }
+
+                    "ONGOING" -> {
+                        phase = UserPhase.TO_DROP
+                        Log.e("USER_WS", "✅ ONGOING -> switch to driver->drop route")
+                        redrawRouteIfPossible()
+                    }
+                    "COMPLETED" -> {
+                        fetchFinalFareAndShow(rideId)
+                    }
+
+                    "PAYMENT_COMPLETED" -> {
+                        resetUserToInitialState()
+                    }
                 }
-
-                if (status == "ONGOING") {
-                    phase = UserPhase.TO_DROP
-                    Log.e("USER_WS", "✅ ONGOING -> switch to driver->drop route")
-                    redrawRouteIfPossible()
-                }
+//
+//                if (status == "ASSIGNED") {
+//                    assignedDriverId = json.optInt("driverId")
+//                    phase = UserPhase.TO_PICKUP
+//
+//                    // optionally fetch ride card via REST once assigned:
+//                    fetchAndShowRideCard(rideId)
+//
+//                    Log.e("USER_WS", "✅ ASSIGNED -> start showing driver->pickup route")
+//                    redrawRouteIfPossible()
+//                }
+//
+//                if (status == "ONGOING") {
+//                    phase = UserPhase.TO_DROP
+//                    Log.e("USER_WS", "✅ ONGOING -> switch to driver->drop route")
+//                    redrawRouteIfPossible()
+//                }
 
             }, { err ->
                 Log.e("USER_WS", "ride status sub error", err)
@@ -336,6 +362,8 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
 
         wsDisposables.add(rideStatusDisp!!)
     }
+
+
 
     private fun subscribeRideLocation(rideId: Int) {
         val stomp = StompManager.clientOrNull() ?: return
@@ -476,6 +504,59 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
             }
         }
     }
+
+    private fun showFinalFareCard(finalFare: String?) {
+        binding.root.findViewById<View>(R.id.layout_ride_card)?.visibility = View.GONE
+        binding.cardRidePanel.visibility = View.GONE
+        val paymentCard = binding.root.findViewById<View>(R.id.paymentCard)
+        if (paymentCard == null) {
+            Log.e("USER_UI", "layout_payment_card not found. Did you <include> it in fragment_home.xml ?")
+            return
+        }
+        paymentCard.visibility = View.VISIBLE
+
+        binding.root.findViewById<TextView>(R.id.tvFinalFare)?.text =
+            "Final Fare: ₹${finalFare ?: "--"}"
+
+        binding.root.findViewById<TextView>(R.id.tvPaymentStatus)?.text =
+            "Please pay the driver"
+
+        paymentCard.findViewById<Button>(R.id.btnOk)?.setOnClickListener {
+            resetUserToInitialState()
+        }
+    }
+
+
+    private fun resetUserToInitialState() {
+
+        stopPolling()
+
+
+        rideSubscription?.dispose()
+        rideSubscription = null
+
+
+        driverMarker?.remove()
+        driverMarker = null
+        liveRoutePolyline?.remove()
+        liveRoutePolyline = null
+
+        currentRideId = null
+        assignedDriverId = null
+        lastDriverLatLng = null
+        phase = UserPhase.WAITING_ASSIGN
+
+        binding.root.findViewById<View>(R.id.paymentCard)?.visibility = View.GONE
+
+        binding.estimateContainer.visibility = View.GONE
+        binding.cardRidePanel.visibility = View.VISIBLE
+        binding.btnConfirmRide.isEnabled = true
+        binding.btnConfirmRide.text = "Confirm ride"
+        binding.btnRequestRide.visibility = View.VISIBLE
+
+        Toast.makeText(requireContext(), "Payment completed. You can book a new ride.", Toast.LENGTH_SHORT).show()
+    }
+
 
     private fun stopPolling() {
         pollingJob?.cancel()
@@ -750,6 +831,27 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
         }
     }
 
+    private fun fetchFinalFareAndShow(rideId: Int) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val api = ApiClient.create(RideApi::class.java)
+                val resp = api.getRideCard(rideId)
+                val fare = resp.body()?.finalFare?.toString()
+
+                withContext(Dispatchers.Main) {
+                    showFinalFareCard(fare)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    showFinalFareCard(null)
+                    Toast.makeText(requireContext(), "Failed to load final fare", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+
+
     private fun setRowSelected(row: View, selected: Boolean) {
         if (selected) {
             row.setBackgroundColor(Color.parseColor("#E0F7FA")) // light teal
@@ -874,24 +976,6 @@ class HomeFragment : Fragment(), OnMapReadyCallback {
         tvEstimatedFare?.text = "Est. Fare: ₹${response.estimatedFare}"
     }
 
-    private fun subscribeToRideUpdates(rideId: Int) {
-        if (!::stompClient.isInitialized) return
-
-        rideSubscription = stompClient
-            .topic("/topic/ride/$rideId")
-            .subscribe({ message ->
-                val card = Gson().fromJson(message.payload, RideCardResponse::class.java)
-
-                if (card.driver != null && card.status == "ASSIGNED") {
-                    lifecycleScope.launch(Dispatchers.Main) {
-                        showRideCard(card)
-                    }
-                }
-            }, { error ->
-                Log.e("WS", error.message ?: "Socket error")
-            })
-
-    }
 
     private var driverMarker: Marker? = null
 
